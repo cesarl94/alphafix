@@ -3,13 +3,44 @@ const { PNG } = require("pngjs");
 const { exit } = require("process");
 const path = require("path");
 
+function findPngFiles(dir, fileList = []) {
+    const files = fs.readdirSync(dir); // Read the directory
+
+    for (const file of files) {
+        const fullPath = path.join(dir, file); // Get the full path
+        const stat = fs.statSync(fullPath); // Get file/directory information
+
+        if (stat.isDirectory()) {
+            // If it's a directory, recursively call the function
+            findPngFiles(fullPath, fileList);
+        } else if (file.endsWith(".png")) {
+            // If it's a .png file, add it to the list
+            fileList.push(fullPath);
+        }
+    }
+
+    return fileList;
+}
+
 if (process.argv.some((arg) => arg == "--help" || arg == "-help" || arg == "help" || arg == "--h" || arg == "-h" || arg == "h")) {
-    console.log("Specify the .png files to read in the command line");
-    console.log("Example: node index.js file.png -premultiply");
+    console.log("Alphafix help:");
+    console.log("Choose an action, specify all the .png files (or use --folder), set the parameters, and run");
+    console.log("(using - or -- before parameters are optional)");
+    console.log("");
+    console.log("Actions: (choose only 1)");
     console.log("--premultiply: Multiplies the pixel values by the alpha");
     console.log("--unpremultiply: Divides the pixel values by the alpha");
     console.log("--deletebackground: Removes the background from the image (all pixels with alpha 0 become black)");
-    console.log("--replace: Replaces the asset with the relevant modifications. Otherwise, a new file is created with a 1 at the end of the name");
+    console.log("");
+    console.log("Parameters:");
+    console.log("--replace: replaces the asset/s with the modifications. Otherwise, a new file is created with the action at the end of the name (or a -1 if it already exists)");
+    console.log("--folder: it'll take all .png files in the current directory and in the subfolders recursivelly");
+    console.log("");
+    console.log("Examples: ");
+    console.log("         alphafix file.png -premultiply");
+    console.log("         alphafix folder replace deletebackground");
+    console.log("         alphafix file1.png file2.png unpremultiply");
+    console.log("         alphafix --folder deletebackground --replace");
     exit(0);
 }
 
@@ -31,11 +62,12 @@ process.argv.forEach((arg) => {
 });
 
 if (validArguments != 1) {
-    console.error("You must specify one argument (only 1). Use -help for more assistance");
+    console.error("You must specify one Action argument (only 1). Use -help for more assistance");
     exit(1);
 }
 
 const replace = process.argv.some((arg) => arg == "--replace" || arg == "-replace" || arg == "replace");
+const folder = process.argv.some((arg) => arg == "--folder" || arg == "-folder" || arg == "folder");
 const premultiply = process.argv.some((arg) => arg == "--premultiply" || arg == "-premultiply" || arg == "premultiply");
 const unpremultiply = process.argv.some((arg) => arg == "--unpremultiply" || arg == "-unpremultiply" || arg == "unpremultiply");
 const deletebackground = process.argv.some((arg) => arg == "--deletebackground" || arg == "-deletebackground" || arg == "deletebackground");
@@ -51,27 +83,18 @@ if (!replace) {
     }
 }
 
-function generateUniqueFileName(filePath) {
-    let extname = path.extname(filePath);
-    let basename = path.basename(filePath, extname);
-    let dir = path.dirname(filePath);
+let pngfilenames;
 
-    let counter = 1;
-    let newFilePath = filePath;
-
-    // Verify if file's already existing, and modify the name if necessary
-    while (fs.existsSync(newFilePath)) {
-        newFilePath = path.join(dir, `${basename}-${counter}${extname}`);
-        counter++;
-    }
-
-    return newFilePath;
+if (folder) {
+    pngfilenames = findPngFiles(process.cwd());
+    const cwdLength = process.cwd().length;
+    pngfilenames = pngfilenames.map((pngfn) => pngfn.substring(cwdLength + 1, pngfn.length));
+} else {
+    pngfilenames = process.argv.filter((arg) => arg.endsWith(".png"));
 }
 
-const pngfilenames = process.argv.filter((arg) => arg.endsWith(".png"));
-
 if (pngfilenames.length == 0) {
-    console.error(`It wasn't specified any .png image in parameters`);
+    console.error(`It wasn't specified neither any .png image in parameters or --folder parameter`);
     exit(1);
 }
 
@@ -120,11 +143,14 @@ for (const pngfs of pngfilenames) {
                 }
 
                 if (changed) {
-                    this.pack().pipe(fs.createWriteStream(replace ? pngfs : generateUniqueFileName(pngfs.substring(0, pngfs.length - 4) + filenameFinal + ".png")));
-                    console.log(`The image ${pngfs} was processed successfully`);
+                    const imageFilename = replace ? pngfs : pngfs.substring(0, pngfs.length - 4) + filenameFinal + ".png";
+                    const exists = fs.existsSync(imageFilename);
+
+                    this.pack().pipe(fs.createWriteStream(imageFilename));
+                    console.log(`The image ${pngfs} was ${exists ? "processed" : "created"} successfully`);
                 } else {
                     if (!replace) {
-                        this.pack().pipe(fs.createWriteStream(generateUniqueFileName(pngfs.substring(0, pngfs.length - 4) + filenameFinal + ".png")));
+                        this.pack().pipe(fs.createWriteStream(pngfs.substring(0, pngfs.length - 4) + filenameFinal + ".png"));
                     }
                     console.log(`The image ${pngfs} was processed but no changes were made`);
                 }
